@@ -1,14 +1,10 @@
 package aemet
 
 import (
-	"embed"
 	"encoding/json"
 	"fmt"
 	"strings"
 )
-
-//go:embed data/municipalities.json
-var municipalitiesFS embed.FS
 
 // Municipality represents a municipality in the AEMET API
 type MunicipalityInfo struct {
@@ -36,12 +32,7 @@ func initializeMunicipalities() error {
 		return nil
 	}
 
-	data, err := municipalitiesFS.ReadFile("data/municipalities.json")
-	if err != nil {
-		return fmt.Errorf("error reading municipalities data: %w", err)
-	}
-
-	err = json.Unmarshal(data, &municipalities)
+	err := json.Unmarshal([]byte(municipalitiesJSON), &municipalities)
 	if err != nil {
 		return fmt.Errorf("error parsing municipalities data: %w", err)
 	}
