@@ -43,7 +43,7 @@ package main
 import (
     "fmt"
     "log"
-    
+
     "github.com/rubiojr/aemet-go"
 )
 
@@ -53,7 +53,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    
+
     // Or configure directly
     client, err = aemet.New(aemet.Config{
         AemetApiKey: "your-api-key-here",
@@ -96,15 +96,15 @@ for _, day := range forecast.Prediccion.Dia {
     fmt.Printf("Date: %s\n", day.Fecha)
     fmt.Printf("Max Temperature: %d°C\n", day.Temperatura.Maxima)
     fmt.Printf("Min Temperature: %d°C\n", day.Temperatura.Minima)
-    
+
     if len(day.EstadoCielo) > 0 {
         fmt.Printf("Sky: %s\n", day.EstadoCielo[0].Descripcion)
     }
-    
+
     if len(day.ProbPrecipitacion) > 0 {
         fmt.Printf("Precipitation Probability: %d%%\n", day.ProbPrecipitacion[0].Value)
     }
-    
+
     fmt.Println()
 }
 ```
@@ -213,12 +213,6 @@ type MunicipalityInfo struct {
     // ... other fields
 }
 ```
-
-## Examples
-
-See the `examples/` directory for more detailed usage examples:
-
-- `municipality_search.go` - Search and find municipality information
 
 ## Error Handling
 

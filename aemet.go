@@ -30,8 +30,7 @@ import (
 )
 
 const (
-	aemetApi   = "https://opendata.aemet.es/opendata"
-	retryCount = 5
+	aemetApi = "https://opendata.aemet.es/opendata"
 
 	// EnvAemetApiKey is the environment variable name for the AEMET API key
 	EnvAemetApiKey = "AEMET_API_KEY"

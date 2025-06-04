@@ -92,7 +92,7 @@ type PeriodData struct {
 }
 
 // extractPeriodData extracts weather data for different time periods from a day forecast
-func extractPeriodData(day aemet.Municipality_Dia) (map[string]PeriodData, bool, bool, bool) {
+func extractPeriodData(day aemet.Dia) (map[string]PeriodData, bool, bool, bool) {
 	// Check if we have detailed periods or just 24h period
 	hasMorningData := false
 	hasAfternoonData := false
@@ -231,7 +231,7 @@ func get24hPeriodData(periodData map[string]PeriodData) PeriodData {
 }
 
 // displayDayForecast displays the weather forecast for a single day
-func displayDayForecast(day aemet.Municipality_Dia) {
+func displayDayForecast(day aemet.Dia) {
 	// Format date nicely
 	formattedDate := formatDate(day.Fecha)
 
