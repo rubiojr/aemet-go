@@ -1,5 +1,7 @@
 # AEMET Go Library
 
+[![GoDoc](https://godoc.org/github.com/rubiojr/aemet-go?status.svg)](https://godoc.org/github.com/rubiojr/aemet-go)
+
 A Go library for retrieving weather data from the Spanish Meteorological Agency (AEMET) API.
 
 ## Features
