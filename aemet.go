@@ -1,3 +1,22 @@
+// Package aemet provides a client for accessing the Spanish State Meteorological Agency (AEMET) OpenData API.
+//
+// This package allows you to retrieve weather forecasts, weather station data, and other meteorological
+// information from the official AEMET API service.
+//
+// Basic usage:
+//
+//	client, err := aemet.NewWithDefaults()
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	forecast, err := client.GetForecastByName("Madrid")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+// The client requires an API key which can be obtained from https://opendata.aemet.es/centrodedescargas/obtencionAPIKey
+// The API key can be set via the Config struct or the AEMET_API_KEY environment variable.
 package aemet
 
 import (
@@ -14,25 +33,42 @@ const (
 	aemetApi   = "https://opendata.aemet.es/opendata"
 	retryCount = 5
 
+	// EnvAemetApiKey is the environment variable name for the AEMET API key
 	EnvAemetApiKey = "AEMET_API_KEY"
 
 	maxRetries    = 3
 	baseBackoffMs = 100
 )
 
+// Config holds the configuration for the AEMET client.
 type Config struct {
-	AemetApiKey             string
+	// AemetApiKey is the API key for accessing AEMET services.
+	// If empty, the client will attempt to read from the AEMET_API_KEY environment variable.
+	AemetApiKey string
+
+	// AemetWeatherStationCode specifies a default weather station code for requests.
+	// This field is currently unused but reserved for future functionality.
 	AemetWeatherStationCode string
-	HTTPClient              *http.Client
-	Logger                  *log.Logger
+
+	// HTTPClient allows customization of the HTTP client used for requests.
+	// If nil, a default client with 30-second timeout will be used.
+	HTTPClient *http.Client
+
+	// Logger specifies a custom logger for the client.
+	// If nil, a default logger writing to stderr will be used.
+	Logger *log.Logger
 }
 
+// Client provides access to the AEMET OpenData API.
 type Client struct {
 	config     Config
 	httpClient *http.Client
 	logger     *log.Logger
 }
 
+// New creates a new AEMET client with the provided configuration.
+// If no API key is provided in the config, it will attempt to read from the AEMET_API_KEY environment variable.
+// Returns an error if no API key can be found.
 func New(config Config) (*Client, error) {
 	if config.AemetApiKey == "" {
 		apiKey := os.Getenv(EnvAemetApiKey)
@@ -62,10 +98,15 @@ func New(config Config) (*Client, error) {
 	return client, nil
 }
 
+// NewWithDefaults creates a new AEMET client with default configuration.
+// The API key will be read from the AEMET_API_KEY environment variable.
+// Returns an error if the environment variable is not set.
 func NewWithDefaults() (*Client, error) {
 	return New(Config{})
 }
 
+// getRedir performs a two-step request to the AEMET API.
+// Many AEMET endpoints return a redirect URL that must be followed to get the actual data.
 func (c *Client) getRedir(path string, t any) error {
 	r, err := c.httpClient.Get(fmt.Sprintf("%s/%s?api_key=%s", aemetApi, path, c.config.AemetApiKey))
 	if err != nil {
@@ -91,6 +132,8 @@ func (c *Client) getRedir(path string, t any) error {
 	return nil
 }
 
+// getRedirWithRetry performs a two-step request with exponential backoff retry logic.
+// This is useful for handling temporary network issues or API rate limits.
 func (c *Client) getRedirWithRetry(path string, t any) error {
 	var lastErr error
 
@@ -113,6 +156,9 @@ func (c *Client) getRedirWithRetry(path string, t any) error {
 	return fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
+// GetStations retrieves a list of all weather stations available in the AEMET network.
+// Returns a slice of WeatherStation structs containing station metadata such as
+// location, altitude, and identification codes.
 func (c *Client) GetStations() ([]WeatherStation, error) {
 	var stations []WeatherStation
 	err := c.getRedir("api/valores/climatologicos/inventarioestaciones/todasestaciones", &stations)
@@ -123,8 +169,9 @@ func (c *Client) GetStations() ([]WeatherStation, error) {
 	return stations, nil
 }
 
-// api/prediccion/especifica/municipio/diaria/<municipio>
-// GetForecastFor gets the weather forecast for a municipality by its ID
+// GetForecastFor retrieves the daily weather forecast for a municipality using its official ID.
+// The municipality ID should be the official INE (National Statistics Institute) code.
+// Returns detailed forecast information including temperature, precipitation, wind, and other meteorological data.
 func (c *Client) GetForecastFor(muni string) (*Municipality, error) {
 	var m []*Municipality
 	err := c.getRedirWithRetry(fmt.Sprintf("api/prediccion/especifica/municipio/diaria/%s", muni), &m)
@@ -139,14 +186,14 @@ func (c *Client) GetForecastFor(muni string) (*Municipality, error) {
 	return m[0], nil
 }
 
-// GetForecastByName gets the weather forecast for a municipality by its name
+// GetForecastByName retrieves the daily weather forecast for a municipality using its name.
+// The function first resolves the municipality name to its official ID, then fetches the forecast.
+// This is a convenience method that combines municipality lookup with forecast retrieval.
 func (c *Client) GetForecastByName(name string) (*Municipality, error) {
-	// Find the municipality ID first
 	id, err := FindMunicipalityID(name)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use the ID to get the forecast
 	return c.GetForecastFor(id)
 }
