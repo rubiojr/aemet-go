@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"time"
@@ -14,6 +15,9 @@ const (
 	retryCount = 5
 
 	EnvAemetApiKey = "AEMET_API_KEY"
+
+	maxRetries    = 3
+	baseBackoffMs = 100
 )
 
 type Config struct {
@@ -87,6 +91,28 @@ func (c *Client) getRedir(path string, t any) error {
 	return nil
 }
 
+func (c *Client) getRedirWithRetry(path string, t any) error {
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoffMs := baseBackoffMs * int(math.Pow(2, float64(attempt-1)))
+			c.logger.Printf("Retrying request (attempt %d/%d) after %dms backoff", attempt+1, maxRetries+1, backoffMs)
+			time.Sleep(time.Duration(backoffMs) * time.Millisecond)
+		}
+
+		err := c.getRedir(path, t)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		c.logger.Printf("Request failed (attempt %d/%d): %v", attempt+1, maxRetries+1, err)
+	}
+
+	return fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
+}
+
 func (c *Client) GetStations() ([]WeatherStation, error) {
 	var stations []WeatherStation
 	err := c.getRedir("api/valores/climatologicos/inventarioestaciones/todasestaciones", &stations)
@@ -101,7 +127,7 @@ func (c *Client) GetStations() ([]WeatherStation, error) {
 // GetForecastFor gets the weather forecast for a municipality by its ID
 func (c *Client) GetForecastFor(muni string) (*Municipality, error) {
 	var m []*Municipality
-	err := c.getRedir(fmt.Sprintf("api/prediccion/especifica/municipio/diaria/%s", muni), &m)
+	err := c.getRedirWithRetry(fmt.Sprintf("api/prediccion/especifica/municipio/diaria/%s", muni), &m)
 	if err != nil {
 		return nil, fmt.Errorf("error requesting data: %w", err)
 	}
