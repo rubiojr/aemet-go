@@ -1,0 +1,35 @@
+name: AEMET integration tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Live AEMET forecast
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run integration tests
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+        run: |
+          if [ -z "$AEMET_API_KEY" ]; then
+            echo "::error::Set the AEMET_API_KEY repository secret to run integration tests."
+            exit 1
+          fi
+          go test -tags=integration -count=1 -v -timeout=5m ./...

@@ -223,6 +223,36 @@ All methods return descriptive errors. Common error scenarios:
 - Network connectivity issues
 - API rate limiting
 
+## Testing
+
+The live AEMET end-to-end test is behind the `integration` build tag. With
+`AEMET_API_KEY` set to a valid API key, run:
+
+```bash
+go test -tags=integration -count=1 -v -timeout=5m ./...
+```
+
+The test calls `GetForecastFor("28079")` for Madrid using Go's default TLS
+settings, follows the API's `datos` URL through the library, and checks the
+decoded municipality, timestamps, and daily predictions. It clears `GODEBUG`
+for the test so compatibility overrides cannot mask TLS failures.
+
+It skips if `AEMET_API_KEY` is unset. With a key configured, API, network, and
+decoding errors fail the test. `-count=1` disables test caching so every run
+contacts AEMET. Ordinary `go test ./...` excludes this test and makes no live
+API requests.
+
+### GitHub Actions
+
+The **AEMET integration tests** workflow runs on pushes to `main` and can be
+started manually from the repository's Actions tab.
+
+Add a repository secret named `AEMET_API_KEY` under **Settings → Secrets and
+variables → Actions → New repository secret**. Set its value to your AEMET API
+key. The workflow uses the Go version in `go.mod` and runs the tagged test
+command above. It fails if the secret is missing so a skipped test cannot be
+mistaken for a successful live check.
+
 ## License
 
 MIT
