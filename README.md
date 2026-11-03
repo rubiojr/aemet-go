@@ -151,6 +151,55 @@ fmt.Printf("Population: %s\n", info.NumHab)
 fmt.Printf("Coordinates: %s, %s\n", info.LatitudeDec, info.LongitudeDec)
 ```
 
+## Command-line tool
+
+The `aemet` command shows forecasts for Spanish municipalities. Names match
+ignoring case and accents, and accept both official and common forms
+(`A Coruña`, `Coruña, A`, `San Sebastián`).
+
+```bash
+go install github.com/rubiojr/aemet-go/cmd/aemet@latest
+export AEMET_API_KEY="your-api-key-here"
+
+aemet forecast Madrid                  # up to 7 days
+aemet forecast -p asturias Mieres      # disambiguate by province
+aemet forecast --days 2 --json 28079   # INE id, JSON output
+aemet day Madrid Bilbao "A Coruña"     # one line per town for today
+aemet search coruña                    # find INE ids, no API key needed
+```
+
+When a name matches several municipalities, `forecast` asks which one you
+mean; `-i` takes the best match instead. Run `aemet <command> --help` for
+all flags.
+
+### MCP server for AI agents
+
+`aemet mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server on stdio. It provides two read-only tools:
+
+- `get_forecast`: forecast for a municipality name or INE id, with an
+  optional `province` and `days` (1-7). Ambiguous names return an error
+  listing the candidates and their ids.
+- `search_municipalities`: find municipalities and their INE ids. It works
+  without an API key.
+
+Add it to an agent's MCP configuration as a stdio server:
+
+```json
+{
+  "mcpServers": {
+    "aemet": {
+      "command": "go",
+      "args": ["run", "github.com/rubiojr/aemet-go/cmd/aemet@latest", "mcp"],
+      "env": { "AEMET_API_KEY": "your-api-key-here" }
+    }
+  }
+}
+```
+
+Use `"command": "aemet", "args": ["mcp"]` if you installed the binary with
+`go install`.
+
 ## Configuration Options
 
 The `Config` struct supports the following options:
