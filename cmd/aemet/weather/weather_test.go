@@ -65,6 +65,24 @@ func TestResolveErrors(t *testing.T) {
 	assert.False(t, errors.As(err, &amb))
 }
 
+func TestCoordinates(t *testing.T) {
+	lat, lon, err := Coordinates("08118")
+	require.NoError(t, err)
+	assert.InDelta(t, 41.4794, lat, 1e-3, "El Masnou")
+	assert.InDelta(t, 2.3165, lon, 1e-3)
+
+	_, _, err = Coordinates("99999")
+	assert.ErrorContains(t, err, "unknown municipality id")
+	_, _, err = Coordinates("x")
+	assert.ErrorContains(t, err, "invalid municipality id")
+
+	idx, err := loadIndex()
+	require.NoError(t, err)
+	for _, e := range idx {
+		assert.True(t, e.hasCoord, "%s has coordinates", e.place)
+	}
+}
+
 func TestSearch(t *testing.T) {
 	places, err := Search("valencia", "", 3)
 	require.NoError(t, err)

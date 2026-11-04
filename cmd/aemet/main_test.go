@@ -10,8 +10,11 @@ import (
 
 	"github.com/rubiojr/aemet-go"
 	"github.com/rubiojr/aemet-go/cmd/aemet/internal/fake"
+	radarcmd "github.com/rubiojr/aemet-go/cmd/aemet/radar"
 	"github.com/rubiojr/aemet-go/cmd/aemet/util"
 	"github.com/rubiojr/aemet-go/cmd/aemet/weather"
+	"github.com/rubiojr/aemet-go/internal/radartest"
+	"github.com/rubiojr/aemet-go/radar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -151,6 +154,41 @@ func TestSearch(t *testing.T) {
 
 	assert.Error(t, run(t, nil, "", "search", "zzzz").err)
 	assert.Error(t, run(t, nil, "", "search").err)
+}
+
+func TestRadar(t *testing.T) {
+	srv := radartest.NewServer(t)
+	orig := radarcmd.Client
+	radarcmd.Client = &radar.Client{BaseURL: srv.URL}
+	t.Cleanup(func() { radarcmd.Client = orig })
+	t.Setenv(aemet.EnvAemetApiKey, "")
+
+	r := run(t, nil, "", "radar", "El", "Masnou")
+	require.NoError(t, r.err)
+	assert.Contains(t, r.out, "Moderate precipitation at Masnou, El")
+
+	r = run(t, nil, "", "r", "--json", "--radius", "10", "--history", "0", "28079")
+	require.NoError(t, r.err)
+	var out radarcmd.Output
+	require.NoError(t, json.Unmarshal([]byte(r.out), &out))
+	assert.Equal(t, "28079", out.Place.ID)
+	assert.Equal(t, radar.StatusDry, out.Latest.Status)
+	assert.Equal(t, 10.0, out.RadiusKm)
+	assert.Empty(t, out.History)
+	assert.NotEmpty(t, out.Summary)
+
+	r = run(t, nil, "", "radar", "Mieres")
+	require.NoError(t, r.err)
+	assert.Contains(t, r.errOut, "using Mieres")
+
+	assert.ErrorContains(t, run(t, nil, "", "radar").err, "required")
+	assert.ErrorContains(t, run(t, nil, "", "radar", "--radius", "0", "Madrid").err, "--radius")
+	assert.ErrorContains(t, run(t, nil, "", "radar", "--radius", "500", "Madrid").err, "radius")
+	assert.ErrorContains(t, run(t, nil, "", "radar", "--history", "999", "Madrid").err, "history")
+	assert.ErrorContains(t, run(t, nil, "", "radar", "Nowhereville").err, "no municipality")
+
+	srv.Fail("radw202611032350_3857.png")
+	assert.ErrorContains(t, run(t, nil, "", "radar", "Madrid").err, "HTTP 500")
 }
 
 func TestVersion(t *testing.T) {

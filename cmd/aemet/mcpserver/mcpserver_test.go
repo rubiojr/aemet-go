@@ -11,15 +11,22 @@ import (
 	"github.com/rubiojr/aemet-go/cmd/aemet/internal/fake"
 	"github.com/rubiojr/aemet-go/cmd/aemet/util"
 	"github.com/rubiojr/aemet-go/cmd/aemet/weather"
+	"github.com/rubiojr/aemet-go/internal/radartest"
+	"github.com/rubiojr/aemet-go/radar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func connect(t *testing.T, newClient func() (util.Forecaster, error)) *mcp.ClientSession {
 	t.Helper()
+	return connectRadar(t, newClient, &radar.Client{BaseURL: "http://127.0.0.1:1"})
+}
+
+func connectRadar(t *testing.T, newClient func() (util.Forecaster, error), rc *radar.Client) *mcp.ClientSession {
+	t.Helper()
 	ctx := context.Background()
 	st, ct := mcp.NewInMemoryTransports()
-	ss, err := NewServer(newClient, nil).Connect(ctx, st, nil)
+	ss, err := NewServer(newClient, rc, nil).Connect(ctx, st, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ss.Close() })
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil).Connect(ctx, ct, nil)
@@ -64,7 +71,11 @@ func TestListTools(t *testing.T) {
 		names[tool.Name] = tool
 	}
 	require.Contains(t, names, "get_forecast")
+	require.Contains(t, names, "get_radar")
 	require.Contains(t, names, "search_municipalities")
+	assert.True(t, names["get_radar"].Annotations.ReadOnlyHint)
+	assert.NotNil(t, names["get_radar"].OutputSchema)
+	assert.Contains(t, cs.InitializeResult().Instructions, "get_radar")
 	assert.True(t, names["get_forecast"].Annotations.ReadOnlyHint)
 	assert.NotNil(t, names["get_forecast"].OutputSchema)
 	assert.Contains(t, cs.InitializeResult().Instructions, "AEMET")
@@ -166,5 +177,59 @@ func TestSearchMunicipalities(t *testing.T) {
 		{"query": ""},
 	} {
 		assert.True(t, call(t, cs, "search_municipalities", args).IsError, "%v", args)
+	}
+}
+
+func TestGetRadar(t *testing.T) {
+	srv := radartest.NewServer(t)
+	// No forecast client: the radar needs no API key.
+	cs := connectRadar(t, lazyClient(""), &radar.Client{BaseURL: srv.URL})
+
+	out := decode[RadarOutput](t, call(t, cs, "get_radar", map[string]any{"location": "El Masnou"}))
+	assert.Equal(t, "08118", out.Place.ID)
+	assert.InDelta(t, 41.48, out.Lat, 0.01)
+	assert.Equal(t, float64(radar.DefaultRadiusKm), out.RadiusKm)
+	assert.Equal(t, radar.StatusPrecipitation, out.Latest.Status)
+	require.NotNil(t, out.Latest.Here)
+	assert.Equal(t, "moderate", out.Latest.Here.Label)
+	assert.Equal(t, "ongoing", out.Trend.Movement)
+	require.Len(t, out.History, 7)
+	for _, s := range out.History {
+		assert.Nil(t, s.Nearest, "history is slimmed")
+		assert.Nil(t, s.Strongest)
+	}
+	assert.Contains(t, out.Summary, "Moderate precipitation at Masnou, El")
+	assert.Contains(t, out.Summary, "00:50 CET")
+
+	out = decode[RadarOutput](t, call(t, cs, "get_radar", map[string]any{"location": "28079", "radius_km": 10, "history_minutes": 30}))
+	assert.Equal(t, radar.StatusDry, out.Latest.Status)
+	assert.Equal(t, 10.0, out.RadiusKm)
+	assert.Len(t, out.History, 4)
+	assert.Contains(t, out.Summary, "no precipitation within 10 km")
+}
+
+func TestGetRadarErrors(t *testing.T) {
+	srv := radartest.NewServer(t)
+	srv.Fail("radw202611032350_3857.png")
+	cs := connectRadar(t, nil, &radar.Client{BaseURL: srv.URL})
+	tests := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"ambiguous", map[string]any{"location": "Mieres"}, "33037"},
+		{"unknown", map[string]any{"location": "Nowhereville"}, "no municipality"},
+		{"radius too high", map[string]any{"location": "Madrid", "radius_km": 201}, "radius_km"},
+		{"radius too small", map[string]any{"location": "Madrid", "radius_km": 0.5}, "radius_km"},
+		{"history too high", map[string]any{"location": "Madrid", "history_minutes": 181}, "history_minutes"},
+		{"history too small", map[string]any{"location": "Madrid", "history_minutes": 5}, "history_minutes"},
+		{"upstream", map[string]any{"location": "Madrid"}, "radar request failed, try again later"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := call(t, cs, "get_radar", tt.args)
+			assert.True(t, res.IsError)
+			assert.Contains(t, text(res), tt.want)
+		})
 	}
 }

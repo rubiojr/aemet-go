@@ -1,0 +1,68 @@
+[
+ {
+  "Producto": "Composicion radar",
+  "Region": "Penbal",
+  "lineaTiempo": [
+   "2026-11-03T23:40:00+01:00",
+   "2026-11-03T23:50:00+01:00",
+   "2026-11-04T00:00:00+01:00",
+   "2026-11-04T00:10:00+01:00",
+   "2026-11-04T00:20:00+01:00",
+   "2026-11-04T00:30:00+01:00",
+   "2026-11-04T00:40:00+01:00",
+   "2026-11-04T00:50:00+01:00"
+  ],
+  "Elementos": [
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-04T00:50:00+01:00",
+    "Nombre fichero": "radw202611032350_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-04T00:10:00+01:00",
+    "Nombre fichero": "radw202611032310_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-04T00:40:00+01:00",
+    "Nombre fichero": "radw202611032340_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-04T00:00:00+01:00",
+    "Nombre fichero": "radw202611032300_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-04T00:30:00+01:00",
+    "Nombre fichero": "radw202611032330_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-04T00:20:00+01:00",
+    "Nombre fichero": "radw202611032320_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-03T23:50:00+01:00",
+    "Nombre fichero": "radw202611032250_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-03T23:40:00+01:00",
+    "Nombre fichero": "radw202611032240_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "not a date",
+    "Nombre fichero": "radw202611032200_3857.png"
+   },
+   {
+    "producto": "Composicion radar",
+    "Fecha": "2026-11-03T23:00:00+01:00",
+    "Nombre fichero": "../../etc/passwd"
+   }
+  ]
+ }
+]

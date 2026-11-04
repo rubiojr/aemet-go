@@ -8,6 +8,7 @@ import (
 	"github.com/rubiojr/aemet-go/cmd/aemet/day"
 	"github.com/rubiojr/aemet-go/cmd/aemet/forecast"
 	"github.com/rubiojr/aemet-go/cmd/aemet/mcpserver"
+	"github.com/rubiojr/aemet-go/cmd/aemet/radar"
 	"github.com/rubiojr/aemet-go/cmd/aemet/search"
 	"github.com/rubiojr/aemet-go/cmd/aemet/util"
 	"github.com/rubiojr/aemet-go/cmd/aemet/version"
@@ -24,6 +25,7 @@ func newApp() *cli.Command {
 		Commands: []*cli.Command{
 			forecast.Command,
 			day.Command,
+			radar.Command,
 			search.Command,
 			mcpserver.Command,
 			version.Command,

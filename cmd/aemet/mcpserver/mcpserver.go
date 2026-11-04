@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rubiojr/aemet-go/cmd/aemet/util"
 	"github.com/rubiojr/aemet-go/cmd/aemet/weather"
+	"github.com/rubiojr/aemet-go/radar"
 	"github.com/urfave/cli/v3"
 )
 
@@ -20,12 +21,19 @@ const (
 	maxSearchLimit = 50
 )
 
-const instructions = `Weather forecasts for Spanish municipalities from AEMET, Spain's state
-meteorological agency. Call get_forecast with a town name or a 5-digit INE
-municipality id. If the name is ambiguous the error lists candidates with
-their ids; retry with an id or a province. Use search_municipalities to
-find ids. Sky descriptions are in Spanish; temperatures are °C and wind
-speeds km/h. Only Spain is covered.`
+const instructions = `Weather forecasts and live radar for Spanish municipalities from AEMET,
+Spain's state meteorological agency. Call get_forecast with a town name or a
+5-digit INE municipality id. If the name is ambiguous the error lists
+candidates with their ids; retry with an id or a province. Use
+search_municipalities to find ids. Sky descriptions are in Spanish;
+temperatures are °C and wind speeds km/h. Only Spain is covered.
+
+Forecasts are daily and cannot say whether it is raining now. For "is it
+raining?", "is rain coming?" or "how hard is it raining?", call get_radar:
+it reads AEMET's latest radar composite (updated every 10 minutes, no API key
+needed) at the town and around it, and compares the last hour to say whether
+rain is approaching. Report the composite's time and age. The radar does not
+cover the Canary Islands.`
 
 // Command serves MCP over stdin/stdout.
 var Command = &cli.Command{
@@ -37,14 +45,14 @@ agent as a stdio server, for example:
    {"command": "go", "args": ["run", "github.com/rubiojr/aemet-go/cmd/aemet@latest", "mcp"],
     "env": {"AEMET_API_KEY": "..."}}
 
-Tools: get_forecast, search_municipalities.`,
+Tools: get_forecast, get_radar, search_municipalities.`,
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		key := util.APIKey(cmd)
 		errOut := cmd.Root().ErrWriter
 		if key == "" {
 			fmt.Fprintln(errOut, "aemet mcp: AEMET_API_KEY is not set; get_forecast will fail until it is")
 		}
-		s := NewServer(lazyClient(key), slog.New(slog.NewTextHandler(errOut, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		s := NewServer(lazyClient(key), &radar.Client{}, slog.New(slog.NewTextHandler(errOut, &slog.HandlerOptions{Level: slog.LevelWarn})))
 		return s.Run(ctx, &mcp.StdioTransport{})
 	},
 }
@@ -90,9 +98,27 @@ type SearchOutput struct {
 	Municipalities []weather.Place `json:"municipalities"`
 }
 
+// RadarInput is the get_radar argument set.
+type RadarInput struct {
+	Location       string  `json:"location" jsonschema:"Spanish municipality name or 5-digit INE id, as for get_forecast"`
+	Province       string  `json:"province,omitempty" jsonschema:"optional province to disambiguate names shared by several municipalities"`
+	RadiusKm       float64 `json:"radius_km,omitempty" jsonschema:"search radius around the town in km, 1-200; default 25"`
+	HistoryMinutes int     `json:"history_minutes,omitempty" jsonschema:"minutes of earlier composites to compare for the trend, 10-180; default 60"`
+}
+
+// RadarOutput is the get_radar result.
+type RadarOutput struct {
+	Place    weather.Place `json:"place"`
+	Lat      float64       `json:"lat"`
+	Lon      float64       `json:"lon"`
+	RadiusKm float64       `json:"radius_km"`
+	Summary  string        `json:"summary" jsonschema:"one-line English summary of the report"`
+	radar.Report
+}
+
 // NewServer returns an MCP server whose tools fetch forecasts through the
-// client returned by newClient.
-func NewServer(newClient func() (util.Forecaster, error), logger *slog.Logger) *mcp.Server {
+// client returned by newClient and radar images through rc.
+func NewServer(newClient func() (util.Forecaster, error), rc *radar.Client, logger *slog.Logger) *mcp.Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
@@ -112,6 +138,20 @@ func NewServer(newClient func() (util.Forecaster, error), logger *slog.Logger) *
 			"Use days=1 for today only.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, IdempotentHint: true, OpenWorldHint: &openWorld},
 	}, forecastHandler(newClient))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:  "get_radar",
+		Title: "Check weather radar",
+		Description: "Is it raining now in a Spanish municipality? Reads AEMET's latest radar " +
+			"composite (every 10 minutes) and reports precipitation at the town (dry, " +
+			"precipitation or no_coverage, with dBZ, label and approximate mm/h), the nearest " +
+			"and the strongest precipitation within radius_km with distance and compass " +
+			"direction, the share of the area with precipitation, and a trend over the last " +
+			"history_minutes (approaching with speed and ETA, receding, arrived, cleared...). " +
+			"Includes a one-line summary. Mainland Spain and the Balearic Islands only. " +
+			"Needs no API key.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, OpenWorldHint: &openWorld},
+	}, radarHandler(rc))
 
 	closedWorld := false
 	mcp.AddTool(s, &mcp.Tool{
@@ -166,4 +206,59 @@ func searchHandler(_ context.Context, _ *mcp.CallToolRequest, in SearchInput) (*
 		places = []weather.Place{}
 	}
 	return nil, SearchOutput{Municipalities: places}, nil
+}
+
+func radarHandler(rc *radar.Client) mcp.ToolHandlerFor[RadarInput, RadarOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in RadarInput) (*mcp.CallToolResult, RadarOutput, error) {
+		opt, err := radarOptions(in)
+		if err != nil {
+			return nil, RadarOutput{}, err
+		}
+		place, err := weather.Resolve(in.Location, in.Province)
+		if err != nil {
+			return nil, RadarOutput{}, err
+		}
+		lat, lon, err := weather.Coordinates(place.ID)
+		if err != nil {
+			return nil, RadarOutput{}, err
+		}
+		r, err := rc.Check(ctx, lat, lon, opt)
+		if err != nil {
+			return nil, RadarOutput{}, fmt.Errorf("AEMET radar request failed, try again later: %w", err)
+		}
+		// Per-frame details stay out of the result to keep it small; the
+		// trend already summarises them.
+		r.History = slimHistory(r.History)
+		return nil, RadarOutput{
+			Place: place, Lat: lat, Lon: lon, RadiusKm: opt.RadiusKm,
+			Summary: weather.RadarSummary(place.Name, opt.RadiusKm, r),
+			Report:  r,
+		}, nil
+	}
+}
+
+// radarOptions validates the get_radar arguments and applies defaults.
+func radarOptions(in RadarInput) (radar.Options, error) {
+	opt := radar.Options{RadiusKm: in.RadiusKm, HistoryMinutes: in.HistoryMinutes}
+	if opt.RadiusKm == 0 {
+		opt.RadiusKm = radar.DefaultRadiusKm
+	}
+	if opt.HistoryMinutes == 0 {
+		opt.HistoryMinutes = radar.DefaultHistoryMinutes
+	}
+	if opt.RadiusKm < 1 || opt.RadiusKm > radar.MaxRadiusKm {
+		return opt, fmt.Errorf("radius_km must be between 1 and %d", radar.MaxRadiusKm)
+	}
+	if opt.HistoryMinutes < 10 || opt.HistoryMinutes > radar.MaxHistoryMinutes {
+		return opt, fmt.Errorf("history_minutes must be between 10 and %d", radar.MaxHistoryMinutes)
+	}
+	return opt, nil
+}
+
+// slimHistory drops the nearest and strongest echoes of earlier frames.
+func slimHistory(h []radar.Snapshot) []radar.Snapshot {
+	for i := range h {
+		h[i].Nearest, h[i].Strongest = nil, nil
+	}
+	return h
 }

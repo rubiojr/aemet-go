@@ -9,6 +9,7 @@ A Go library for retrieving weather data from the Spanish Meteorological Agency 
 - Get weather station information
 - Retrieve weather forecasts by municipality ID or name
 - Built-in municipality search functionality
+- Live weather radar: is it raining at a point, how hard, and is rain approaching
 - Simple, lightweight client for accessing AEMET weather data
 - Configurable via direct options or environment variables
 - Returns structured Go objects for easy integration
@@ -151,6 +152,35 @@ fmt.Printf("Population: %s\n", info.NumHab)
 fmt.Printf("Coordinates: %s, %s\n", info.LatitudeDec, info.LongitudeDec)
 ```
 
+### Weather radar
+
+The `radar` package reads AEMET's national radar composite for mainland
+Spain and the Balearic Islands, published every 10 minutes. It needs no API
+key and does not cover the Canary Islands.
+
+```go
+import "github.com/rubiojr/aemet-go/radar"
+
+var rc radar.Client
+report, err := rc.Check(ctx, 41.4794, 2.3165, radar.Options{RadiusKm: 25})
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(report.Latest.Status) // dry, precipitation or no_coverage
+if here := report.Latest.Here; here != nil {
+    fmt.Printf("%s, %d-%d dBZ\n", here.Label, here.MinDBZ, here.MaxDBZ)
+}
+fmt.Println(report.Trend.Movement) // approaching, receding, arrived, ...
+```
+
+A report holds the latest composite's time and age, the status and
+intensity at the point, the nearest and strongest echoes within the radius
+with distance and compass direction, the share of the area with
+precipitation, and a trend over the last hour: whether the nearest
+precipitation is approaching, with speed and ETA, or receding, arriving or
+clearing. Intensities come from AEMET's reflectivity legend (dBZ), with
+approximate rain rates from the Marshall-Palmer relation.
+
 ## Command-line tool
 
 The `aemet` command shows forecasts for Spanish municipalities. Names match
@@ -165,6 +195,7 @@ aemet forecast Madrid                  # up to 7 days
 aemet forecast -p asturias Mieres      # disambiguate by province
 aemet forecast --days 2 --json 28079   # INE id, JSON output
 aemet day Madrid Bilbao "A Coruña"     # one line per town for today
+aemet radar "El Masnou"                # is it raining now? no API key needed
 aemet search coruña                    # find INE ids, no API key needed
 ```
 
@@ -175,11 +206,15 @@ all flags.
 ### MCP server for AI agents
 
 `aemet mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
-server on stdio. It provides two read-only tools:
+server on stdio. It provides three read-only tools:
 
 - `get_forecast`: forecast for a municipality name or INE id, with an
   optional `province` and `days` (1-7). Ambiguous names return an error
   listing the candidates and their ids.
+- `get_radar`: what the latest radar composite shows at and around a
+  municipality, with a one-line summary and the trend over the last hour.
+  Optional `radius_km` (1-200, default 25) and `history_minutes` (10-180,
+  default 60). It works without an API key.
 - `search_municipalities`: find municipalities and their INE ids. It works
   without an API key.
 
@@ -286,7 +321,12 @@ settings, follows the API's `datos` URL through the library, and checks the
 decoded municipality, timestamps, and daily predictions. It clears `GODEBUG`
 for the test so compatibility overrides cannot mask TLS failures.
 
-It skips if `AEMET_API_KEY` is unset. With a key configured, API, network, and
+`TestRadarIntegration` reads the live radar endpoints, which need no API key,
+and checks that the legend, coverage and freshness still match what the
+`radar` package expects. Unit tests use recorded composites in
+`internal/radartest/testdata` and make no network requests.
+
+The forecast test skips if `AEMET_API_KEY` is unset. With a key configured, API, network, and
 decoding errors fail the test. `-count=1` disables test caching so every run
 contacts AEMET. Ordinary `go test ./...` excludes this test and makes no live
 API requests.

@@ -49,6 +49,8 @@ type entry struct {
 	place    Place
 	variants []string // folded names the place is searchable by
 	province string   // folded province names
+	lat, lon float64
+	hasCoord bool
 }
 
 var idRe = regexp.MustCompile(`^[0-9]{5}$`)
@@ -124,10 +126,15 @@ var loadIndex = sync.OnceValues(func() ([]entry, error) {
 		id := strings.TrimPrefix(m.ID, "id")
 		pop, _ := strconv.Atoi(m.NumHab)
 		prov := provinces[id[:min(2, len(id))]]
+		lat, errLat := strconv.ParseFloat(m.LatitudeDec, 64)
+		lon, errLon := strconv.ParseFloat(m.LongitudeDec, 64)
 		idx = append(idx, entry{
 			place:    Place{ID: id, Name: m.Name, Province: prov, Population: pop},
 			variants: nameVariants(m.Name),
 			province: fold(prov),
+			lat:      lat,
+			lon:      lon,
+			hasCoord: errLat == nil && errLon == nil,
 		})
 	}
 	return idx, nil
@@ -140,20 +147,38 @@ func IsID(s string) bool {
 
 // Lookup returns the municipality with the given INE code.
 func Lookup(id string) (Place, error) {
+	e, err := lookup(id)
+	return e.place, err
+}
+
+func lookup(id string) (entry, error) {
 	id = strings.TrimSpace(id)
 	if !IsID(id) {
-		return Place{}, fmt.Errorf("invalid municipality id %q: want a 5-digit INE code such as 28079", id)
+		return entry{}, fmt.Errorf("invalid municipality id %q: want a 5-digit INE code such as 28079", id)
 	}
 	idx, err := loadIndex()
 	if err != nil {
-		return Place{}, err
+		return entry{}, err
 	}
 	for _, e := range idx {
 		if e.place.ID == id {
-			return e.place, nil
+			return e, nil
 		}
 	}
-	return Place{}, fmt.Errorf("unknown municipality id %s", id)
+	return entry{}, fmt.Errorf("unknown municipality id %s", id)
+}
+
+// Coordinates returns the latitude and longitude of a municipality's
+// main town in decimal degrees.
+func Coordinates(id string) (lat, lon float64, err error) {
+	e, err := lookup(id)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !e.hasCoord {
+		return 0, 0, fmt.Errorf("no coordinates for %s", e.place)
+	}
+	return e.lat, e.lon, nil
 }
 
 const noMatch = 4
