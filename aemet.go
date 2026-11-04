@@ -63,6 +63,7 @@ type Client struct {
 	config     Config
 	httpClient *http.Client
 	logger     *log.Logger
+	baseURL    string
 }
 
 // New creates a new AEMET client with the provided configuration.
@@ -78,8 +79,9 @@ func New(config Config) (*Client, error) {
 	}
 
 	client := &Client{
-		config: config,
-		logger: config.Logger,
+		config:  config,
+		logger:  config.Logger,
+		baseURL: aemetApi,
 	}
 
 	if client.logger == nil {
@@ -104,25 +106,42 @@ func NewWithDefaults() (*Client, error) {
 	return New(Config{})
 }
 
+// envelope is the first response of a two-step AEMET request. On success
+// Datos holds the URL of the actual data; on failure only Estado and
+// Descripcion are set.
+type envelope struct {
+	Descripcion string `json:"descripcion"`
+	Estado      int    `json:"estado"`
+	Datos       string `json:"datos"`
+}
+
 // getRedir performs a two-step request to the AEMET API.
 // Many AEMET endpoints return a redirect URL that must be followed to get the actual data.
 func (c *Client) getRedir(path string, t any) error {
-	r, err := c.httpClient.Get(fmt.Sprintf("%s/%s?api_key=%s", aemetApi, path, c.config.AemetApiKey))
+	r, err := c.httpClient.Get(fmt.Sprintf("%s/%s?api_key=%s", c.baseURL, path, c.config.AemetApiKey))
 	if err != nil {
 		return fmt.Errorf("error requesting data: %w", err)
 	}
 	defer r.Body.Close()
 
-	var data map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		return fmt.Errorf("error decoding data: %w", err)
+	var env envelope
+	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+		return fmt.Errorf("error decoding data (HTTP %d): %w", r.StatusCode, err)
+	}
+	// AEMET reports failures such as rate limits or a bad key in the body,
+	// without a data URL.
+	if env.Datos == "" {
+		return fmt.Errorf("AEMET returned no data URL (HTTP %d, estado %d): %s", r.StatusCode, env.Estado, env.Descripcion)
 	}
 
-	r, err = c.httpClient.Get(fmt.Sprintf("%s?api_key=%s", data["datos"], c.config.AemetApiKey))
+	r, err = c.httpClient.Get(fmt.Sprintf("%s?api_key=%s", env.Datos, c.config.AemetApiKey))
 	if err != nil {
 		return fmt.Errorf("error requesting data: %w", err)
 	}
 	defer r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		return fmt.Errorf("error requesting data: HTTP %d", r.StatusCode)
+	}
 
 	if err := json.NewDecoder(r.Body).Decode(t); err != nil {
 		return fmt.Errorf("error decoding data: %w", err)
